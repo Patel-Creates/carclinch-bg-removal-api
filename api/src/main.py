@@ -1,14 +1,18 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import shutil
 from pathlib import Path
-from fastapi import FastAPI, File, HTTPException, UploadFile, Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 import sys
 
 root_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(root_dir))
 
+from fastapi import FastAPI, File, HTTPException, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+from src.constants import ALLOWED_EXTENSIONS, MAX_WORKERS, SUPPORTED_MODELS
+from src.util import process_model_replacement, validate_uploaded_image
 from core import processor
 
 app = FastAPI()
@@ -20,8 +24,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def get_dirs() -> tuple[Path, Path, Path]:
@@ -82,50 +84,50 @@ def upload_image(image: UploadFile = File(...)):
 def replace_background_endpoint(
     image: UploadFile = File(..., description="Car image (foreground)"),
     background: UploadFile = File(..., description="New background image"),
-    car_size: float = Form(60, description="Car size as percentage (1-100). Examples: 50=smaller, 60=standard, 80=larger", ge=1, le=100),
-    smart_placement: bool = Form(True, description="Enable intelligent ground plane detection"),
+    car_size: float = Form(
+        60,
+        description="Car size as percentage (1-100). Examples: 50=smaller, 60=standard, 80=larger",
+        ge=1,
+        le=100,
+    ),
+    smart_placement: bool = Form(
+        True,
+        description="Enable intelligent ground plane detection",
+    ),
 ):
     """
     Replace the background of a car image with a new background.
-    
+
     This endpoint performs AI-powered background removal on the car image,
     then intelligently composites it onto a new background with proper scaling
     and ground plane detection.
     """
-    # Convert percentage to decimal (60 -> 0.6)
     car_size_decimal = car_size / 100.0
-    
-    # Content Type Validation
+
     for file in [image, background]:
         if not (file.content_type and file.content_type.startswith("image/")):
             raise HTTPException(
                 status_code=400,
-                detail=f"File {file.filename} is not a valid image."
+                detail=f"File {file.filename} is not a valid image.",
             )
 
-    # Type-Safe Filename Handling
     fg_filename_str = image.filename or "foreground_upload"
     bg_filename_str = background.filename or "background_upload"
 
-    # Directory and Path Setup
     _, input_dir, output_dir = get_dirs()
 
-    # Create safe Path objects
     fg_path = input_dir / f"fg_{fg_filename_str}"
     bg_path = input_dir / f"bg_{bg_filename_str}"
 
-    # Generate output filename
     output_name = f"replaced_{Path(fg_filename_str).stem}.png"
     output_path = output_dir / output_name
 
     try:
-        # Save uploaded files to the input directory
         with fg_path.open("wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
         with bg_path.open("wb") as buffer:
             shutil.copyfileobj(background.file, buffer)
 
-        # Call the core library processing function with smart placement
         result_img = processor.replace_background(
             foreground_input=str(fg_path),
             background_input=str(bg_path),
@@ -135,13 +137,12 @@ def replace_background_endpoint(
             smart_placement=smart_placement,
         )
 
-        # Save the final composited image
         result_img.save(output_path, format="PNG")
 
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Processing failed: {str(e)}"
+            detail=f"Processing failed: {str(e)}",
         )
     finally:
         image.file.close()
@@ -157,6 +158,92 @@ def replace_background_endpoint(
         "message": "Background replaced successfully with intelligent scaling and positioning",
     }
 
+import asyncio
+import time
+
+@app.post("/replace-background-all-models")
+async def replace_background_all_models(
+    image: UploadFile = File(..., description="Car image (foreground)"),
+    background: UploadFile = File(..., description="New background image"),
+    car_size: float = Form(60, description="Car size as percentage (1-100)", ge=1, le=100),
+    smart_placement: bool = Form(True, description="Enable intelligent ground plane detection"),
+):
+    start_time = time.perf_counter()
+    car_size_decimal = car_size / 100.0
+
+    fg_filename = validate_uploaded_image(image)
+    bg_filename = validate_uploaded_image(background)
+
+    _, input_dir, output_dir = get_dirs()
+
+    fg_path = input_dir / f"fg_{fg_filename.name}"
+    bg_path = input_dir / f"bg_{bg_filename.name}"
+
+    results = []
+
+    try:
+        with fg_path.open("wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+
+        with bg_path.open("wb") as buffer:
+            shutil.copyfileobj(background.file, buffer)
+
+        async def run_model(model: str):
+            try:
+                return await asyncio.to_thread(
+                    process_model_replacement,
+                    model,
+                    fg_path,
+                    bg_path,
+                    output_dir,
+                    car_size_decimal,
+                    smart_placement,
+                )
+            except Exception as e:
+                return {
+                    "model": model,
+                    "status": "failed",
+                    "error": str(e),
+                }
+
+        tasks = [run_model(model) for model in SUPPORTED_MODELS]
+        results = await asyncio.gather(*tasks)
+
+    finally:
+        image.file.close()
+        background.file.close()
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    failed_count = len(results) - success_count
+    duration_seconds = round(time.perf_counter() - start_time, 2)
+
+    if success_count == 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "All model runs failed",
+                "input_foreground": fg_path.name,
+                "input_background": bg_path.name,
+                "total_models": len(SUPPORTED_MODELS),
+                "successful_models": 0,
+                "failed_models": failed_count,
+                "duration_seconds": duration_seconds,
+                "results": sorted(results, key=lambda r: r["model"]),
+            },
+        )
+
+    return {
+        "input_foreground": fg_path.name,
+        "input_background": bg_path.name,
+        "total_models": len(SUPPORTED_MODELS),
+        "successful_models": success_count,
+        "failed_models": failed_count,
+        "car_size_percentage": f"{car_size}%",
+        "smart_placement_enabled": smart_placement,
+        "duration_seconds": duration_seconds,
+        "results": sorted(results, key=lambda r: r["model"]),
+        "message": "Multi-model background replacement completed",
+    }
 
 @app.get("/output/{filename}")
 def get_output(filename: str):
