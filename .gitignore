@@ -1,8 +1,17 @@
-model_eval/.cache
-model_eval/results
-*/__pycache__
-api/src/images/output
-api/src/images/input
-api/src/__pycache__
-*/.venv
-*/images
+# Python cache
+*/__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+*/.venv/
+
+# Generated images
+*/images/
+api/src/images/input/
+api/src/images/output/
+
+# Model evaluation artifacts
+model_eval/.cache/
+model_eval/results/
+images/
