@@ -75,12 +75,42 @@ def process_image(
 
 def detect_ground_plane(background_image: Image.Image) -> Tuple[float, float]:
     """
-    Detect where the ground/floor is in the background image.
-
+    Detects where the ground/floor is in the background image.
+    
+    The algorithm analyzes the bottom third of the background image, examining
+    brightness patterns and surface uniformity. Low variance (<1000) indicates
+    a uniform surface like a showroom floor or concrete platform.
+    
+    This process is completely automatic & no manual adjustment.
+    
+    Algorithm:
+    1. Analyzes bottom third of image (converts to RGB, extracts lower section)
+    2. Calculates variance of pixel values across the bottom section
+    3. Low variance (< 1000) = uniform floor detected (showroom/studio)
+    4. High variance (>= 1000) = non-uniform surface (outdoor/textured scene)
+    5. Returns perspective scale factor based on detected surface type
+    
+    Args:
+        background_image (Image.Image): The background scene where the car will be placed
+    
     Returns:
-        (vertical_position, scale_factor)
-        - vertical_position: NOT USED in new logic (kept for compatibility)
-        - scale_factor: how much to adjust car size based on perspective
+        tuple: (vertical_position, scale_factor)
+            - vertical_position (float): Always 0.92 (kept for compatibility, not used)
+            - scale_factor (float): 0.9 for showrooms (90% size for perspective), 
+                                   1.0 for outdoor (100% normal size)
+    
+    Example:
+        >>> from PIL import Image
+        >>> showroom = Image.open("showroom.jpg")
+        >>> ground_pos, scale = detect_ground_plane(showroom)
+        >>> print(f"Scale factor: {scale}")
+        Scale factor: 0.9
+    
+    Technical Details:
+        - Variance threshold: 1000 (empirically determined)
+        - Analysis region: Bottom 33% of image (height * 2/3 to height)
+        - Showroom detection: Uniform tiled floors, bright surfaces
+        - Outdoor detection: Sky, varied textures, non-uniform lighting
     """
     # Convert to numpy for analysis
     img_array = np.array(background_image.convert("RGB"))
@@ -113,10 +143,72 @@ def smart_composite(
     target_car_ratio: float = 0.6,
 ) -> Image.Image:
     """
-    Intelligently composites car onto background with scene-aware positioning.
-
-    CRITICAL: The car's wheels ALWAYS touch the ground at the same position,
-    regardless of car_size. Only the car's scale changes, not its ground position.
+    Intelligently composites the car onto background with scene-aware positioning.
+    
+    This function ensures natural car placement by:
+    1. Detecting ground plane in background (showroom vs outdoor)
+    2. Finding actual car dimensions from mask (ignoring empty transparent space)
+    3. Scaling car to target size with perspective adjustment
+    4. Locating exact wheel positions in the scaled car
+    5. Aligning wheels with fixed ground line at 92% down the image
+    
+    CRITICAL: The car's wheels ALWAYS touch the ground at the same vertical position
+    (92% down the image), regardless of car_size. Only the car's scale changes, not 
+    its ground position. This ensures natural placement whether car_size is 50% or 80%.
+    
+    Result: No floating cars. Wheels make proper contact with the floor at any size.
+    
+    Args:
+        car_image (Image.Image): RGBA car image with transparent background (from U²-Net)
+        car_mask (np.ndarray): Boolean mask where True = car pixels, False = transparent
+        background_image (Image.Image): New background scene (showroom, garage, outdoor)
+        target_car_ratio (float): Car size as decimal (0.5 = 50%, 0.6 = 60%, 0.8 = 80%)
+                                  Default: 0.6 (60% of frame)
+    
+    Returns:
+        Image.Image: RGB composite image with car naturally positioned on background
+    
+    Algorithm Details:
+        **Ground Detection Phase:**
+        - Calls detect_ground_plane() to analyze background
+        - Returns perspective_scale: 0.9 for showrooms, 1.0 for outdoor
+        
+        **Dimension Detection Phase:**
+        - Finds car bounding box from mask (actual car pixels, not image size)
+        - Calculates car_width and car_height from bounding box
+        
+        **Scaling Phase:**
+        - Adjusts target ratio: adjusted_ratio = target_car_ratio × perspective_scale
+        - Calculates scale_factor = min(width_scale, height_scale) to fit frame
+        - Resizes car image to new_car_width × new_car_height
+        
+        **Wheel Detection Phase:**
+        - Analyzes scaled car's alpha channel
+        - Finds last row containing car pixels (car_bottom_relative)
+        - This is where the wheels are located
+        
+        **Positioning Phase:**
+        - Ground line fixed at 92% down image: ground_line_y = height × 0.92
+        - Calculates paste position: paste_y = ground_line_y - car_bottom_relative
+        - Centers horizontally: paste_x = (width - car_width) / 2
+        - Ensures car doesn't exceed image bounds (safety checks)
+        
+        **Compositing Phase:**
+        - Pastes scaled car onto background at calculated position
+        - Uses car's alpha channel as mask for clean edges
+        - Returns final RGB composite
+    
+    Technical Constants:
+        - Ground line position: 92% (0.92) down from top
+        - Bottom margin: 8% (leaves space below wheels)
+        - Showroom perspective: 0.9× scale reduction
+        - Outdoor perspective: 1.0× normal scale
+    
+    Edge Cases Handled:
+        - Empty mask: Returns background unchanged
+        - Car too large: Safety bounds prevent overflow
+        - Car too small: Minimum paste position = 0
+        - No car pixels: Uses full car height as fallback
     """
     # Detect where the ground is in the background
     ground_position, perspective_scale = detect_ground_plane(background_image)
