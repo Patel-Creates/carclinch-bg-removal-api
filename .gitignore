@@ -15,3 +15,5 @@ api/src/images/output/
 model_eval/.cache/
 model_eval/results/
 images/
+.env
+.env.example
