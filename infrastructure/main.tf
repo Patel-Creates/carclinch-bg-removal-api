@@ -111,8 +111,8 @@ resource "azurerm_container_app" "api" {
     container {
       name   = "api"
       image  = "${azurerm_container_registry.this.login_server}/carclinch-bg-removal-api:latest"
-      cpu    = 1.0
-      memory = "2Gi"
+      cpu    = 2.0
+      memory = "4Gi"
 
       env {
         name        = "AZURE_STORAGE_ACCOUNT_NAME"
