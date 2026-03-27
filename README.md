@@ -24,7 +24,7 @@ Car dealership listings require clean, professional images of vehicles against n
 - **Model Evaluation Suite** — Offline benchmarking suite to measure and compare model quality (IoU, F1, MAE)
 - **Cloud Deployment** — Fully containerized and deployed on Azure Container Apps with Terraform-managed infrastructure
 
-## 🏗️ Architecture
+## S Architecture
 
 **CI/CD:** GitHub Actions → Azure Container Registry → Azure Container Apps
 
