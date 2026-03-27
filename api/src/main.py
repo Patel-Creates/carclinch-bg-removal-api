@@ -136,7 +136,7 @@ def replace_background_endpoint(
         result_img = processor.replace_background(
             foreground_input=str(fg_path),
             background_input=str(bg_path),
-            model_name="isnet-general-use",
+            model_name="birefnet-general",
             normalize=True,
             target_car_ratio=car_size_decimal,
             smart_placement=smart_placement,
