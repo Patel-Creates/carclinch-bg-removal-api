@@ -1,9 +1,10 @@
 from pathlib import Path
 from typing import Union, Optional, Tuple, cast
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from rembg import remove, new_session
 from functools import lru_cache
+from ultralytics import YOLO
 
 
 @lru_cache(maxsize=1)
@@ -14,6 +15,40 @@ def get_session(model_name: str):
     the previous one is evicted to free up VRAM/RAM.
     """
     return new_session(model_name)
+
+
+@lru_cache(maxsize=1)
+def get_yolo_model():
+    # 'yolov8n.pt' is small/fast, can try out other models later
+    return YOLO("yolov8n.pt")
+
+
+def detect_vehicle_bbox(img: Image.Image) -> Optional[Tuple[int, int, int, int]]:
+    """
+    Detects the primary vehicle using YOLO.
+    Returns (x1, y1, x2, y2) or None.
+    """
+    model = get_yolo_model()
+    # Classes 2 (car), 7 (truck) in COCO
+    results = model.predict(img, classes=[2, 7], conf=0.25, verbose=False)
+
+    # Check if results exists and has at least one detection result
+    if not results or len(results) == 0:
+        return None
+
+    # Access the first result and check if 'boxes' is not None and not empty
+    first_result = results[0]
+    if first_result.boxes is None or len(first_result.boxes) == 0:
+        return None
+
+    # Extract the first box (highest confidence)
+    box_data = first_result.boxes[0].xyxy
+
+    if box_data is None:
+        return None
+
+    box = box_data[0].cpu().numpy()
+    return (int(box[0]), int(box[1]), int(box[2]), int(box[3]))
 
 
 def process_image(
@@ -45,51 +80,84 @@ def process_image(
         if img.width > max_size[0] or img.height > max_size[1]:
             img.thumbnail(max_size, Image.Resampling.LANCZOS)
 
+    # YOLO Pre-detection
+    bbox = detect_vehicle_bbox(img)
+
+    # Initialize crop parameters to full image defaults to prevent "unbound" errors
+    x1, y1, x2, y2 = 0, 0, img.width, img.height
+
+    if bbox:
+        x1, y1, x2, y2 = bbox
+        # 5% padding helps rembg see the edge contrast
+        pad_w, pad_h = int((x2 - x1) * 0.05), int((y2 - y1) * 0.05)
+        crop_box = (
+            max(0, x1 - pad_w),
+            max(0, y1 - pad_h),
+            min(img.width, x2 + pad_w),
+            min(img.height, y2 + pad_h),
+        )
+        working_img = img.crop(crop_box)
+    else:
+        working_img = img
+        crop_box = (0, 0, img.width, img.height)
+
     session = get_session(model_name)
 
     # rembg.remove returns Union[bytes, Image, ndarray].
     # Since we provide an Image, it returns an Image.
-    result = remove(img, session=session)
+    result_crop = cast(Image.Image, remove(working_img, session=session))
 
-    # Type Guard for the checker
-    if not isinstance(result, Image.Image):
-        if isinstance(result, np.ndarray):
-            result = Image.fromarray(result)
-        else:  # it's bytes
-            import io
+    # Reconstruct Full Frame
+    # Create a transparent canvas the size of the original input
+    full_output = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    full_output.paste(result_crop, (crop_box[0], crop_box[1]))
 
-            result = Image.open(io.BytesIO(result)).convert("RGBA")
+    # Post-Removal Cleanup
+    # If a car was detected, force everything outside the YOLO box to be transparent.
+    if bbox:
+        # Create a visibility mask: White (255) for the car area, Black (0) for everything else
+        clean_mask = Image.new("L", full_output.size, 0)
+        draw = ImageDraw.Draw(clean_mask)
+        draw.rectangle([x1, y1, x2, y2], fill=255)
 
-    output_img = cast(Image.Image, result)
+        # Get the current alpha (which might contain the person)
+        current_alpha = full_output.getchannel("A")
+
+        # Intersect the rembg alpha with our YOLO rectangle mask
+        # This keeps the soft edges of the car but deletes the person entirely
+        black_bg = Image.new("L", full_output.size, 0)
+        final_alpha = Image.composite(current_alpha, black_bg, clean_mask)
+
+        full_output.putalpha(final_alpha)
 
     # Generate boolean mask from the alpha channel
-    alpha = np.array(output_img)[:, :, 3]
+    alpha = np.array(full_output)[:, :, 3]
     mask = alpha > 0
 
-    return output_img, mask
+    return full_output, mask
 
 
 def detect_ground_plane(background_image: Image.Image) -> Tuple[float, float]:
     """
     Detect where the ground/floor is in the background image.
-    
+
     Returns:
         (vertical_position, scale_factor)
         - vertical_position: NOT USED in new logic (kept for compatibility)
         - scale_factor: how much to adjust car size based on perspective
     """
     # Convert to numpy for analysis
-    img_array = np.array(background_image.convert('RGB'))
+    img_array = np.array(background_image.convert("RGB"))
     height, width = img_array.shape[:2]
-    
+
     # Analyze bottom section
     thirds = height // 3
-    bottom_section = img_array[2*thirds:, :]
+    bottom_section = img_array[2 * thirds :, :]
     bottom_variance = np.var(bottom_section)
-    
+
     # Determine if there's a visible floor
     has_visible_floor = bottom_variance < 1000
-    
+
     if has_visible_floor:
         # Showroom/floor - make car slightly smaller for perspective
         vertical_position = 0.92  # Not used, but kept for compatibility
@@ -98,7 +166,7 @@ def detect_ground_plane(background_image: Image.Image) -> Tuple[float, float]:
         # Outdoor/sky - normal size
         vertical_position = 0.92
         scale_factor = 1.0
-    
+
     return vertical_position, scale_factor
 
 
@@ -110,56 +178,54 @@ def smart_composite(
 ) -> Image.Image:
     """
     Intelligently composites car onto background with scene-aware positioning.
-    
+
     CRITICAL: The car's wheels ALWAYS touch the ground at the same position,
     regardless of car_size. Only the car's scale changes, not its ground position.
     """
     # Detect where the ground is in the background
     ground_position, perspective_scale = detect_ground_plane(background_image)
-    
+
     # Get car bounding box from original mask
     rows = np.any(car_mask, axis=1)
     cols = np.any(car_mask, axis=0)
-    
+
     if not np.any(rows) or not np.any(cols):
         return background_image.convert("RGB")
-    
+
     y_min, y_max = np.where(rows)[0][[0, -1]]
     x_min, x_max = np.where(cols)[0][[0, -1]]
-    
+
     car_width = x_max - x_min
     car_height = y_max - y_min
-    
+
     target_width, target_height = background_image.size
-    
+
     # Apply perspective scaling (smaller cars in showrooms)
     adjusted_car_ratio = target_car_ratio * perspective_scale
-    
+
     # Calculate scaling factor
     scale_x = (target_width * adjusted_car_ratio) / car_width
     scale_y = (target_height * adjusted_car_ratio) / car_height
     scale_factor = min(scale_x, scale_y)
-    
+
     # Scale the car
     new_car_width = int(car_image.width * scale_factor)
     new_car_height = int(car_image.height * scale_factor)
-    
+
     car_scaled = car_image.resize(
-        (new_car_width, new_car_height),
-        Image.Resampling.LANCZOS
+        (new_car_width, new_car_height), Image.Resampling.LANCZOS
     )
-    
+
     # Resize background
     bg_resized = background_image.resize(
-        (target_width, target_height),
-        Image.Resampling.LANCZOS
+        (target_width, target_height), Image.Resampling.LANCZOS
     ).convert("RGBA")
-    
+
     # CRITICAL: Find where the wheels actually are in the SCALED car
     car_scaled_array = np.array(car_scaled)
     car_scaled_alpha = car_scaled_array[:, :, 3]
     car_scaled_mask = car_scaled_alpha > 0
-    
+
     # Find the actual bottom row of car pixels (wheels)
     if np.any(car_scaled_mask):
         car_rows = np.any(car_scaled_mask, axis=1)
@@ -167,28 +233,28 @@ def smart_composite(
         car_bottom_relative = np.where(car_rows)[0][-1]
     else:
         car_bottom_relative = new_car_height - 1
-    
+
     # Center horizontally
     paste_x = (target_width - new_car_width) // 2
-    
+
     # GROUND POSITIONING LOGIC:
     # The ground is at a fixed position in the background (e.g., 92% down)
     # We want the car's wheels (bottom pixels) to sit exactly at that position
     # This should work for ANY car_size value
-    
+
     # Where the ground line is in pixels
     ground_line_y = int(target_height * 0.92)  # 92% down the image
-    
+
     # Position the car so its bottom (wheels) align with the ground line
     paste_y = ground_line_y - car_bottom_relative
-    
+
     # Safety bounds
     paste_x = max(0, min(paste_x, target_width - new_car_width))
     paste_y = max(0, min(paste_y, target_height - new_car_height))
-    
+
     # Composite
     bg_resized.paste(car_scaled, (paste_x, paste_y), car_scaled)
-    
+
     return bg_resized.convert("RGB")
 
 
@@ -200,74 +266,72 @@ def normalize_and_composite(
 ) -> Image.Image:
     """
     Intelligently scales and composites the car onto a new background.
-    
+
     Fixes the perspective/scaling issue by:
     1. Detecting the actual car bounding box from the mask
     2. Scaling the car to occupy a consistent portion of the frame
     3. Centering the car with a slight bottom bias for natural appearance
-    
+
     Args:
         car_image: RGBA image of car with transparent background
         car_mask: Boolean mask of the car (True = car pixels)
         background_image: New background image
         target_car_ratio: How much of the frame the car should occupy (0.0-1.0)
                          Default 0.6 means car takes up 60% of the frame
-    
+
     Returns:
         RGB image with car properly scaled and composited on new background
     """
     # Get car bounding box from mask to find actual car dimensions
     rows = np.any(car_mask, axis=1)
     cols = np.any(car_mask, axis=0)
-    
+
     if not np.any(rows) or not np.any(cols):
         # No car detected in mask, return background as-is
         return background_image.convert("RGB")
-    
+
     y_min, y_max = np.where(rows)[0][[0, -1]]
     x_min, x_max = np.where(cols)[0][[0, -1]]
-    
+
     car_width = x_max - x_min
     car_height = y_max - y_min
-    
+
     # Use the background dimensions as the target canvas size
     target_width, target_height = background_image.size
-    
+
     # Calculate scaling factor to make car occupy target_car_ratio of the frame
     # Scale based on the dimension that would result in the smaller final size
     # This ensures the car fits within the frame
     scale_x = (target_width * target_car_ratio) / car_width
     scale_y = (target_height * target_car_ratio) / car_height
     scale_factor = min(scale_x, scale_y)
-    
+
     # Calculate new car dimensions
     new_car_width = int(car_image.width * scale_factor)
     new_car_height = int(car_image.height * scale_factor)
-    
+
     # Scale the car image
     car_scaled = car_image.resize(
-        (new_car_width, new_car_height),
-        Image.Resampling.LANCZOS
+        (new_car_width, new_car_height), Image.Resampling.LANCZOS
     )
-    
+
     # Resize background to target dimensions if needed
     bg_resized = background_image.resize(
-        (target_width, target_height),
-        Image.Resampling.LANCZOS
+        (target_width, target_height), Image.Resampling.LANCZOS
     ).convert("RGBA")
-    
+
     # Calculates position to center the car horizontally
     # and position it slightly below center vertically (more natural for car photos)
     paste_x = (target_width - new_car_width) // 2
     paste_y = int((target_height - new_car_height) * 0.55)  # 55% down from top
-    
+
     # Ensure we don't paste outside the canvas
     paste_x = max(0, min(paste_x, target_width - new_car_width))
     paste_y = max(0, min(paste_y, target_height - new_car_height))
-    
+
     # Paste the scaled car onto the background using its alpha channel as mask
     bg_resized.paste(car_scaled, (paste_x, paste_y), car_scaled)
-    
+
     return bg_resized.convert("RGB")
 
 
@@ -283,7 +347,7 @@ def replace_background(
     """
     Removes the background from the foreground image and replaces it with
     the provided background image.
-    
+
     Args:
         foreground_input: Car image (path or PIL Image)
         background_input: New background image (path or PIL Image)
@@ -292,12 +356,21 @@ def replace_background(
         normalize: If True, intelligently scales car to fit background naturally
         target_car_ratio: How much of frame car should occupy (0.0-1.0)
         smart_placement: If True, detects ground plane and positions car accordingly
-    
+
     Returns:
         RGB image with new background
     """
     # Remove background from car image
     foreground_img, mask = process_image(foreground_input, model_name, max_size)
+
+    # Crop the foreground_img to the mask bounds
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    if np.any(rows) and np.any(cols):
+        y_min, y_max = np.where(rows)[0][[0, -1]]
+        x_min, x_max = np.where(cols)[0][[0, -1]]
+        foreground_img = foreground_img.crop((x_min, y_min, x_max, y_max))
+        mask = mask[y_min:y_max, x_min:x_max]
 
     # Load background image
     if isinstance(background_input, (str, Path)):
@@ -307,24 +380,15 @@ def replace_background(
 
     # Use smart placement if enabled
     if normalize and smart_placement:
-        return smart_composite(
-            foreground_img,
-            mask,
-            background_img,
-            target_car_ratio
-        )
+        return smart_composite(foreground_img, mask, background_img, target_car_ratio)
     elif normalize:
         return normalize_and_composite(
-            foreground_img,
-            mask,
-            background_img,
-            target_car_ratio
+            foreground_img, mask, background_img, target_car_ratio
         )
     else:
         # Legacy method: just resize background to match foreground
         background_img = background_img.resize(
-            foreground_img.size,
-            Image.Resampling.LANCZOS
+            foreground_img.size, Image.Resampling.LANCZOS
         )
         combined_img = Image.alpha_composite(background_img, foreground_img)
         return combined_img.convert("RGB")

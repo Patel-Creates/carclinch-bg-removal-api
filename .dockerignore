@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+.env
+images
+model_eval
+screenshots
+terraform.tfstate
+terraform.tfstate.backup
+infrastructure/.terraform
+infrastructure/.terraform.lock.hcl
