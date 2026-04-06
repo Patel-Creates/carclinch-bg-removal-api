@@ -132,6 +132,7 @@ def detect_ground_plane(background_image: Image.Image) -> Tuple[float, float]:
         # Outdoor/sky - normal size
         vertical_position = 0.92
         scale_factor = 1.0
+
     return vertical_position, scale_factor
 
 
@@ -252,6 +253,7 @@ def smart_composite(
     car_scaled_array = np.array(car_scaled)
     car_scaled_alpha = car_scaled_array[:, :, 3]
     car_scaled_mask = car_scaled_alpha > 0
+
     # Find the actual bottom row of car pixels (wheels)
     if np.any(car_scaled_mask):
         car_rows = np.any(car_scaled_mask, axis=1)
@@ -292,16 +294,19 @@ def normalize_and_composite(
 ) -> Image.Image:
     """
     Intelligently scales and composites the car onto a new background.
+
     Fixes the perspective/scaling issue by:
     1. Detecting the actual car bounding box from the mask
     2. Scaling the car to occupy a consistent portion of the frame
     3. Centering the car with a slight bottom bias for natural appearance
+
     Args:
         car_image: RGBA image of car with transparent background
         car_mask: Boolean mask of the car (True = car pixels)
         background_image: New background image
         target_car_ratio: How much of the frame the car should occupy (0.0-1.0)
                          Default 0.6 means car takes up 60% of the frame
+
     Returns:
         RGB image with car properly scaled and composited on new background
     """
@@ -370,6 +375,7 @@ def replace_background(
     """
     Removes the background from the foreground image and replaces it with
     the provided background image.
+
     Args:
         foreground_input: Car image (path or PIL Image)
         background_input: New background image (path or PIL Image)
@@ -378,6 +384,7 @@ def replace_background(
         normalize: If True, intelligently scales car to fit background naturally
         target_car_ratio: How much of frame car should occupy (0.0-1.0)
         smart_placement: If True, detects ground plane and positions car accordingly
+
     Returns:
         RGB image with new background
     """
@@ -409,4 +416,3 @@ def replace_background(
 def clear_sessions():
     """Explicitly clears the model cache to free resources."""
     get_session.cache_clear()
-

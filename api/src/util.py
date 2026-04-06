@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 
-from constants import ALLOWED_EXTENSIONS
+from src.constants import ALLOWED_EXTENSIONS
 from core import processor
 
 
