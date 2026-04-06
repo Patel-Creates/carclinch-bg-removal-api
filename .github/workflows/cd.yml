@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dp-ci-cd
 
 jobs:
   cd:
