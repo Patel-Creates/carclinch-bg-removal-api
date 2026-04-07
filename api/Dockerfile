@@ -5,9 +5,25 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  build-essential \
+  cmake \
+  git \
+  curl \
+  wget \
+  libgl1 \
+  libglib2.0-0 \
+  libsm6 \
+  libxext6 \
+  libxrender1 \
+  libx11-6 \
+  libxcb1 \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY api/src/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
-    && pip install --no-cache-dir uvicorn python-dotenv azure-storage-blob
+  && pip install --no-cache-dir uvicorn python-dotenv azure-storage-blob
 
 COPY . /app
 
