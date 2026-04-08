@@ -2,10 +2,9 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from core import processor
+
 
 from dotenv import load_dotenv
-
 from util import process_model_replacement, validate_uploaded_image
 from fastapi import FastAPI, File, HTTPException, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +12,7 @@ from fastapi.responses import FileResponse, Response
 
 from blob_storage import upload_file_to_blob, download_blob_bytes
 from constants import ALLOWED_EXTENSIONS, SUPPORTED_MODELS
+from core import processor
 
 root_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(root_dir))
