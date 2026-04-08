@@ -3,6 +3,9 @@ import shutil
 import sys
 from pathlib import Path
 
+root_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(root_dir))
+
 from dotenv import load_dotenv
 
 from util import process_model_replacement, validate_uploaded_image
@@ -13,10 +16,6 @@ from fastapi.responses import FileResponse, Response
 from blob_storage import upload_file_to_blob, download_blob_bytes
 from constants import ALLOWED_EXTENSIONS, SUPPORTED_MODELS
 from core import processor
-
-root_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(root_dir))
-
 
 
 load_dotenv()
