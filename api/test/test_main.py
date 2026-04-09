@@ -21,6 +21,7 @@ TEST_OUTPUT_DIR = TEST_IMAGES_DIR / "output"
 
 API_DIR = THIS_FILE.parents[1]  # -> api/
 sys.path.insert(0, str(API_DIR))
+sys.path.insert(0, str(API_DIR / "src"))
 
 # Tell the app to write under api/test/images instead of ./images
 os.environ["IMAGE_BASE_DIR"] = str(TEST_IMAGES_DIR)
