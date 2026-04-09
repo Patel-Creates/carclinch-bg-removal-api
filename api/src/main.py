@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import shutil
 from pathlib import Path
@@ -98,13 +97,6 @@ def replace_background_endpoint(
         description="Enable intelligent ground plane detection",
     ),
 ):
-    """
-    Replace the background of a car image with a new background.
-
-    This endpoint performs AI-powered background removal on the car image,
-    then intelligently composites it onto a new background with proper scaling
-    and ground plane detection.
-    """
     car_size_decimal = car_size / 100.0
 
     for file in [image, background]:
@@ -128,6 +120,7 @@ def replace_background_endpoint(
     try:
         with fg_path.open("wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
+
         with bg_path.open("wb") as buffer:
             shutil.copyfileobj(background.file, buffer)
 
