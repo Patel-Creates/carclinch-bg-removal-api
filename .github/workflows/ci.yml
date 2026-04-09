@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+      - testing
     paths:
       - 'api/**'
       - 'core/**'
       - '.github/workflows/**'
+      - 'model_eval/**'
   pull_request:
     branches:
       - main

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, Response
 from blob_storage import upload_file_to_blob, download_blob_bytes
 from constants import ALLOWED_EXTENSIONS, SUPPORTED_MODELS
 from util import process_model_replacement, validate_uploaded_image
-from core import processor
+from core import processor  # noqa: E402
 
 load_dotenv()
 
