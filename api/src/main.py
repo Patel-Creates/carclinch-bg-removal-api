@@ -1,30 +1,27 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import shutil
 from pathlib import Path
 import sys
+
+from dotenv import load_dotenv
+
+from util import process_model_replacement, validate_uploaded_image
 
 root_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(root_dir))
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
-from src.constants import ALLOWED_EXTENSIONS, MAX_WORKERS, SUPPORTED_MODELS
-from src.util import process_model_replacement, validate_uploaded_image
+from blob_storage import upload_file_to_blob, download_blob_bytes
+from constants import ALLOWED_EXTENSIONS, SUPPORTED_MODELS
 from core import processor
+
+load_dotenv()
 
 app = FastAPI()
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -102,13 +99,6 @@ def replace_background_endpoint(
         description="Enable intelligent ground plane detection",
     ),
 ):
-    """
-    Replace the background of a car image with a new background.
-
-    This endpoint performs AI-powered background removal on the car image,
-    then intelligently composites it onto a new background with proper scaling
-    and ground plane detection.
-    """
     car_size_decimal = car_size / 100.0
 
     for file in [image, background]:
@@ -132,19 +122,21 @@ def replace_background_endpoint(
     try:
         with fg_path.open("wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
+
         with bg_path.open("wb") as buffer:
             shutil.copyfileobj(background.file, buffer)
 
         result_img = processor.replace_background(
             foreground_input=str(fg_path),
             background_input=str(bg_path),
-            model_name="isnet-general-use",
+            model_name="birefnet-general",
             normalize=True,
             target_car_ratio=car_size_decimal,
             smart_placement=smart_placement,
         )
 
         result_img.save(output_path, format="PNG")
+        blob_result = upload_file_to_blob(output_path)
 
     except Exception as e:
         raise HTTPException(
@@ -155,27 +147,36 @@ def replace_background_endpoint(
         image.file.close()
         background.file.close()
 
+    image_url = f"/images/{blob_result['blob_name']}"
+
     return {
         "input_foreground": fg_path.name,
         "input_background": bg_path.name,
         "output_filename": output_path.name,
         "output_path": str(output_path),
+        "blob_name": blob_result["blob_name"],
+        "blob_container": blob_result["container_name"],
+        "image_url": image_url,
         "car_size_percentage": f"{car_size}%",
         "smart_placement_enabled": smart_placement,
-        "message": "Background replaced successfully with intelligent scaling and positioning",
+        "message": "Background replaced successfully and uploaded to blob storage",
     }
 
-import asyncio
-import time
-
 @app.post("/replace-background-all-models")
-async def replace_background_all_models(
+def replace_background_all_models(
     image: UploadFile = File(..., description="Car image (foreground)"),
     background: UploadFile = File(..., description="New background image"),
-    car_size: float = Form(60, description="Car size as percentage (1-100)", ge=1, le=100),
-    smart_placement: bool = Form(True, description="Enable intelligent ground plane detection"),
+    car_size: float = Form(
+        60,
+        description="Car size as percentage (1-100)",
+        ge=1,
+        le=100,
+    ),
+    smart_placement: bool = Form(
+        True,
+        description="Enable intelligent ground plane detection",
+    ),
 ):
-    start_time = time.perf_counter()
     car_size_decimal = car_size / 100.0
 
     fg_filename = validate_uploaded_image(image)
@@ -195,49 +196,49 @@ async def replace_background_all_models(
         with bg_path.open("wb") as buffer:
             shutil.copyfileobj(background.file, buffer)
 
-        async def run_model(model: str):
+        for model_name in SUPPORTED_MODELS:
             try:
-                return await asyncio.to_thread(
-                    process_model_replacement,
-                    model,
-                    fg_path,
-                    bg_path,
-                    output_dir,
-                    car_size_decimal,
-                    smart_placement,
+                model_result = process_model_replacement(
+                    model_name=model_name,
+                    fg_path=fg_path,
+                    bg_path=bg_path,
+                    output_dir=output_dir,
+                    car_size_decimal=car_size_decimal,
+                    smart_placement=smart_placement,
+                )
+
+                blob_result = upload_file_to_blob(Path(model_result["output_path"]))
+
+                results.append(
+                    {
+                        "model": model_name,
+                        "status": "success",
+                        "output_filename": model_result["output_filename"],
+                        "blob_name": blob_result["blob_name"],
+                        "blob_container": blob_result["container_name"],
+                        "image_url": f"/images/{blob_result['blob_name']}",
+                    }
                 )
             except Exception as e:
-                return {
-                    "model": model,
-                    "status": "failed",
-                    "error": str(e),
-                }
+                results.append(
+                    {
+                        "model": model_name,
+                        "status": "failed",
+                        "error": str(e),
+                    }
+                )
 
-        tasks = [run_model(model) for model in SUPPORTED_MODELS]
-        results = await asyncio.gather(*tasks)
-
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Processing failed: {str(e)}",
+        )
     finally:
         image.file.close()
         background.file.close()
 
     success_count = sum(1 for r in results if r["status"] == "success")
     failed_count = len(results) - success_count
-    duration_seconds = round(time.perf_counter() - start_time, 2)
-
-    if success_count == 0:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "message": "All model runs failed",
-                "input_foreground": fg_path.name,
-                "input_background": bg_path.name,
-                "total_models": len(SUPPORTED_MODELS),
-                "successful_models": 0,
-                "failed_models": failed_count,
-                "duration_seconds": duration_seconds,
-                "results": sorted(results, key=lambda r: r["model"]),
-            },
-        )
 
     return {
         "input_foreground": fg_path.name,
@@ -247,10 +248,19 @@ async def replace_background_all_models(
         "failed_models": failed_count,
         "car_size_percentage": f"{car_size}%",
         "smart_placement_enabled": smart_placement,
-        "duration_seconds": duration_seconds,
-        "results": sorted(results, key=lambda r: r["model"]),
+        "results": results,
         "message": "Multi-model background replacement completed",
     }
+
+
+@app.get("/images/{blob_name}")
+def get_private_image(blob_name: str):
+    try:
+        blob_data, content_type = download_blob_bytes(blob_name)
+        return Response(content=blob_data, media_type=content_type)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Image not found: {str(e)}")
+
 
 @app.get("/output/{filename}")
 def get_output(filename: str):
