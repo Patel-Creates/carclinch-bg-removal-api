@@ -13,4 +13,8 @@ COPY . /app
 
 EXPOSE 8000
 
+RUN mkdir -p /app/models && chmod 777 /app/models
+ENV MODEL_CACHE_DIR=/app/models
+ENV YOLO_CONFIG_DIR=/app/models
+
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "api/src"]
