@@ -1,21 +1,20 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import shutil
-import sys
 from pathlib import Path
+import sys
+
+root_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(root_dir))
 
 from dotenv import load_dotenv
-
-from util import process_model_replacement, validate_uploaded_image
 from fastapi import FastAPI, File, HTTPException, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
 from blob_storage import upload_file_to_blob, download_blob_bytes
 from constants import ALLOWED_EXTENSIONS, SUPPORTED_MODELS
-
-root_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(root_dir))
-
+from util import process_model_replacement, validate_uploaded_image
 from core import processor
 
 load_dotenv()
@@ -99,6 +98,13 @@ def replace_background_endpoint(
         description="Enable intelligent ground plane detection",
     ),
 ):
+    """
+    Replace the background of a car image with a new background.
+
+    This endpoint performs AI-powered background removal on the car image,
+    then intelligently composites it onto a new background with proper scaling
+    and ground plane detection.
+    """
     car_size_decimal = car_size / 100.0
 
     for file in [image, background]:
@@ -122,7 +128,6 @@ def replace_background_endpoint(
     try:
         with fg_path.open("wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
-
         with bg_path.open("wb") as buffer:
             shutil.copyfileobj(background.file, buffer)
 
@@ -240,6 +245,20 @@ def replace_background_all_models(
 
     success_count = sum(1 for r in results if r["status"] == "success")
     failed_count = len(results) - success_count
+
+    if success_count == 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "All model runs failed",
+                "input_foreground": fg_path.name,
+                "input_background": bg_path.name,
+                "total_models": len(SUPPORTED_MODELS),
+                "successful_models": 0,
+                "failed_models": failed_count,
+                "results": results,
+            },
+        )
 
     return {
         "input_foreground": fg_path.name,
