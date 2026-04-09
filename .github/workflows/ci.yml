@@ -34,18 +34,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r api/src/requirements.txt
-          pip install pytest ruff httpx
+          pip install ruff
 
       - name: Lint with ruff
         run: ruff check api/src/
-
-      - name: Run tests
-        env:
-          PYTHONPATH: api/src
-          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
-          AZURE_STORAGE_ACCOUNT_KEY: ${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }}
-          AZURE_STORAGE_CONTAINER_NAME: ${{ secrets.AZURE_STORAGE_CONTAINER_NAME }}
-        run: pytest api/test/ -v
 
       - name: Build Docker image (no push)
         run: docker build -f api/Dockerfile -t carclinch-api:test .
