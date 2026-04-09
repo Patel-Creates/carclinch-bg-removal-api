@@ -97,6 +97,7 @@ def test_missing_image_returns_422(client: TestClient):
     assert res.status_code == 422
 
 
+@pytest.mark.skip(reason="requires AI model download, runs locally only")
 def test_zz_upload_image_saves_files_in_input_and_output_folders(client: TestClient):
     """
     Real integration run:
