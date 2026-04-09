@@ -6,12 +6,13 @@ from collections import defaultdict
 from PIL import Image
 from dataset import load_dataset
 from metrics import dice, iou
+from core import processor
 
 # add the parent directory to sys.path so we can find the core folder
 root_dir = Path(__file__).resolve().parent.parent
 sys.path.append(str(root_dir))
 
-from core import processor
+
 
 # Configuration
 MODELS = [

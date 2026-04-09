@@ -1,13 +1,12 @@
 from pathlib import Path
 from typing import Union, Optional, Tuple, cast
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from rembg import remove, new_session
 from functools import lru_cache
+from ultralytics import YOLO
 
 
-# maxsize=1 is intentional: only one model should be active at a time.
-# Loading a new model automatically evicts the previous one, freeing VRAM/RAM.
 @lru_cache(maxsize=1)
 def get_session(model_name: str):
     """
@@ -16,6 +15,40 @@ def get_session(model_name: str):
     the previous one is evicted to free up VRAM/RAM.
     """
     return new_session(model_name)
+
+
+@lru_cache(maxsize=1)
+def get_yolo_model():
+    # 'yolov8n.pt' is small/fast, can try out other models later
+    return YOLO("yolov8n.pt")
+
+
+def detect_vehicle_bbox(img: Image.Image) -> Optional[Tuple[int, int, int, int]]:
+    """
+    Detects the primary vehicle using YOLO.
+    Returns (x1, y1, x2, y2) or None.
+    """
+    model = get_yolo_model()
+    # Classes 2 (car), 7 (truck) in COCO
+    results = model.predict(img, classes=[2, 7], conf=0.25, verbose=False)
+
+    # Check if results exists and has at least one detection result
+    if not results or len(results) == 0:
+        return None
+
+    # Access the first result and check if 'boxes' is not None and not empty
+    first_result = results[0]
+    if first_result.boxes is None or len(first_result.boxes) == 0:
+        return None
+
+    # Extract the first box (highest confidence)
+    box_data = first_result.boxes[0].xyxy
+
+    if box_data is None:
+        return None
+
+    box = box_data[0].cpu().numpy()
+    return (int(box[0]), int(box[1]), int(box[2]), int(box[3]))
 
 
 def process_image(
@@ -45,72 +78,73 @@ def process_image(
     # Resize for consistency if max_size is provided
     if max_size:
         if img.width > max_size[0] or img.height > max_size[1]:
-            # thumbnail() preserves aspect ratio, so the output may be smaller than max_size
-            # on one dimension. Callers should not assume exact output dimensions.
             img.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+    # YOLO Pre-detection
+    bbox = detect_vehicle_bbox(img)
+
+    # Initialize crop parameters to full image defaults to prevent "unbound" errors
+    x1, y1, x2, y2 = 0, 0, img.width, img.height
+
+    if bbox:
+        x1, y1, x2, y2 = bbox
+        # 5% padding helps rembg see the edge contrast
+        pad_w, pad_h = int((x2 - x1) * 0.05), int((y2 - y1) * 0.05)
+        crop_box = (
+            max(0, x1 - pad_w),
+            max(0, y1 - pad_h),
+            min(img.width, x2 + pad_w),
+            min(img.height, y2 + pad_h),
+        )
+        working_img = img.crop(crop_box)
+    else:
+        working_img = img
+        crop_box = (0, 0, img.width, img.height)
 
     session = get_session(model_name)
 
     # rembg.remove returns Union[bytes, Image, ndarray].
     # Since we provide an Image, it returns an Image.
-    result = remove(img, session=session)
+    result_crop = cast(Image.Image, remove(working_img, session=session))
 
-    # Type Guard for the checker
-    if not isinstance(result, Image.Image):
-        if isinstance(result, np.ndarray):
-            result = Image.fromarray(result)
-        else:  # it's bytes
-            import io
+    # Reconstruct Full Frame
+    # Create a transparent canvas the size of the original input
+    full_output = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    full_output.paste(result_crop, (crop_box[0], crop_box[1]))
 
-            result = Image.open(io.BytesIO(result)).convert("RGBA")
+    # Post-Removal Cleanup
+    # If a car was detected, force everything outside the YOLO box to be transparent.
+    if bbox:
+        # Create a visibility mask: White (255) for the car area, Black (0) for everything else
+        clean_mask = Image.new("L", full_output.size, 0)
+        draw = ImageDraw.Draw(clean_mask)
+        draw.rectangle([x1, y1, x2, y2], fill=255)
 
-    output_img = cast(Image.Image, result)
+        # Get the current alpha (which might contain the person)
+        current_alpha = full_output.getchannel("A")
+
+        # Intersect the rembg alpha with our YOLO rectangle mask
+        # This keeps the soft edges of the car but deletes the person entirely
+        black_bg = Image.new("L", full_output.size, 0)
+        final_alpha = Image.composite(current_alpha, black_bg, clean_mask)
+
+        full_output.putalpha(final_alpha)
 
     # Generate boolean mask from the alpha channel
-    alpha = np.array(output_img)[:, :, 3]
+    alpha = np.array(full_output)[:, :, 3]
     mask = alpha > 0
 
-    return output_img, mask
+    return full_output, mask
 
 
 def detect_ground_plane(background_image: Image.Image) -> Tuple[float, float]:
     """
-    Detects where the ground/floor is in the background image.
-
-    The algorithm analyzes the bottom third of the background image, examining
-    brightness patterns and surface uniformity. Low variance (<1000) indicates
-    a uniform surface like a showroom floor or concrete platform.
-
-    This process is completely automatic & no manual adjustment.
-
-    Algorithm:
-    1. Analyzes bottom third of image (converts to RGB, extracts lower section)
-    2. Calculates variance of pixel values across the bottom section
-    3. Low variance (< 1000) = uniform floor detected (showroom/studio)
-    4. High variance (>= 1000) = non-uniform surface (outdoor/textured scene)
-    5. Returns perspective scale factor based on detected surface type
-
-    Args:
-        background_image (Image.Image): The background scene where the car will be placed
+    Detect where the ground/floor is in the background image.
 
     Returns:
-        tuple: (vertical_position, scale_factor)
-            - vertical_position (float): Always 0.92 (kept for compatibility, not used)
-            - scale_factor (float): 0.9 for showrooms (90% size for perspective),
-                                   1.0 for outdoor (100% normal size)
-
-    Example:
-        >>> from PIL import Image
-        >>> showroom = Image.open("showroom.jpg")
-        >>> ground_pos, scale = detect_ground_plane(showroom)
-        >>> print(f"Scale factor: {scale}")
-        Scale factor: 0.9
-
-    Technical Details:
-        - Variance threshold: 1000 (empirically determined)
-        - Analysis region: Bottom 33% of image (height * 2/3 to height)
-        - Showroom detection: Uniform tiled floors, bright surfaces
-        - Outdoor detection: Sky, varied textures, non-uniform lighting
+        (vertical_position, scale_factor)
+        - vertical_position: NOT USED in new logic (kept for compatibility)
+        - scale_factor: how much to adjust car size based on perspective
     """
     # Convert to numpy for analysis
     img_array = np.array(background_image.convert("RGB"))
@@ -123,7 +157,6 @@ def detect_ground_plane(background_image: Image.Image) -> Tuple[float, float]:
 
     # Determine if there's a visible floor
     has_visible_floor = bottom_variance < 1000
-
 
     if has_visible_floor:
         # Showroom/floor - make car slightly smaller for perspective
@@ -144,72 +177,10 @@ def smart_composite(
     target_car_ratio: float = 0.6,
 ) -> Image.Image:
     """
-    Intelligently composites the car onto background with scene-aware positioning.
-    
-    This function ensures natural car placement by:
-    1. Detecting ground plane in background (showroom vs outdoor)
-    2. Finding actual car dimensions from mask (ignoring empty transparent space)
-    3. Scaling car to target size with perspective adjustment
-    4. Locating exact wheel positions in the scaled car
-    5. Aligning wheels with fixed ground line at 92% down the image
-    
-    CRITICAL: The car's wheels ALWAYS touch the ground at the same vertical position
-    (92% down the image), regardless of car_size. Only the car's scale changes, not 
-    its ground position. This ensures natural placement whether car_size is 50% or 80%.
-    
-    Result: No floating cars. Wheels make proper contact with the floor at any size.
-    
-    Args:
-        car_image (Image.Image): RGBA car image with transparent background (from U²-Net)
-        car_mask (np.ndarray): Boolean mask where True = car pixels, False = transparent
-        background_image (Image.Image): New background scene (showroom, garage, outdoor)
-        target_car_ratio (float): Car size as decimal (0.5 = 50%, 0.6 = 60%, 0.8 = 80%)
-                                  Default: 0.6 (60% of frame)
-    
-    Returns:
-        Image.Image: RGB composite image with car naturally positioned on background
-    
-    Algorithm Details:
-        **Ground Detection Phase:**
-        - Calls detect_ground_plane() to analyze background
-        - Returns perspective_scale: 0.9 for showrooms, 1.0 for outdoor
-        
-        **Dimension Detection Phase:**
-        - Finds car bounding box from mask (actual car pixels, not image size)
-        - Calculates car_width and car_height from bounding box
-        
-        **Scaling Phase:**
-        - Adjusts target ratio: adjusted_ratio = target_car_ratio × perspective_scale
-        - Calculates scale_factor = min(width_scale, height_scale) to fit frame
-        - Resizes car image to new_car_width × new_car_height
-        
-        **Wheel Detection Phase:**
-        - Analyzes scaled car's alpha channel
-        - Finds last row containing car pixels (car_bottom_relative)
-        - This is where the wheels are located
-        
-        **Positioning Phase:**
-        - Ground line fixed at 92% down image: ground_line_y = height × 0.92
-        - Calculates paste position: paste_y = ground_line_y - car_bottom_relative
-        - Centers horizontally: paste_x = (width - car_width) / 2
-        - Ensures car doesn't exceed image bounds (safety checks)
-        
-        **Compositing Phase:**
-        - Pastes scaled car onto background at calculated position
-        - Uses car's alpha channel as mask for clean edges
-        - Returns final RGB composite
-    
-    Technical Constants:
-        - Ground line position: 92% (0.92) down from top
-        - Bottom margin: 8% (leaves space below wheels)
-        - Showroom perspective: 0.9× scale reduction
-        - Outdoor perspective: 1.0× normal scale
-    
-    Edge Cases Handled:
-        - Empty mask: Returns background unchanged
-        - Car too large: Safety bounds prevent overflow
-        - Car too small: Minimum paste position = 0
-        - No car pixels: Uses full car height as fallback
+    Intelligently composites car onto background with scene-aware positioning.
+
+    CRITICAL: The car's wheels ALWAYS touch the ground at the same position,
+    regardless of car_size. Only the car's scale changes, not its ground position.
     """
     # Detect where the ground is in the background
     ground_position, perspective_scale = detect_ground_plane(background_image)
@@ -391,6 +362,15 @@ def replace_background(
     """
     # Remove background from car image
     foreground_img, mask = process_image(foreground_input, model_name, max_size)
+
+    # Crop the foreground_img to the mask bounds
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    if np.any(rows) and np.any(cols):
+        y_min, y_max = np.where(rows)[0][[0, -1]]
+        x_min, x_max = np.where(cols)[0][[0, -1]]
+        foreground_img = foreground_img.crop((x_min, y_min, x_max, y_max))
+        mask = mask[y_min:y_max, x_min:x_max]
 
     # Load background image
     if isinstance(background_input, (str, Path)):

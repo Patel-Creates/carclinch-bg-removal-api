@@ -1,0 +1,43 @@
+name: CI - Lint and Test
+
+on:
+  push:
+    branches:
+      - main
+      - testing
+    paths:
+      - 'api/**'
+      - 'core/**'
+      - '.github/workflows/**'
+      - 'model_eval/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'api/**'
+      - 'core/**'
+      - '.github/workflows/**'
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r api/src/requirements.txt
+          pip install ruff
+
+      - name: Lint with ruff
+        run: ruff check api/src/
+
+      - name: Build Docker image (no push)
+        run: docker build -f api/Dockerfile -t carclinch-api:test .

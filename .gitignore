@@ -1,5 +1,6 @@
 # Python cache
 */__pycache__/
+**/__pycache__/
 *.py[cod]
 
 # Virtual environments
@@ -14,11 +15,6 @@ api/src/images/output/
 # Model evaluation artifacts
 model_eval/.cache/
 model_eval/results/
-<<<<<<< HEAD
-images/
-.env
-.env.example
-=======
 images/
 .env
 .env.example

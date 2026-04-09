@@ -21,6 +21,7 @@ TEST_OUTPUT_DIR = TEST_IMAGES_DIR / "output"
 
 API_DIR = THIS_FILE.parents[1]  # -> api/
 sys.path.insert(0, str(API_DIR))
+sys.path.insert(0, str(API_DIR / "src"))
 
 # Tell the app to write under api/test/images instead of ./images
 os.environ["IMAGE_BASE_DIR"] = str(TEST_IMAGES_DIR)
@@ -97,6 +98,7 @@ def test_missing_image_returns_422(client: TestClient):
     assert res.status_code == 422
 
 
+@pytest.mark.skip(reason="requires AI model download, runs locally only")
 def test_zz_upload_image_saves_files_in_input_and_output_folders(client: TestClient):
     """
     Real integration run:
