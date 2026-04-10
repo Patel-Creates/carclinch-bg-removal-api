@@ -128,6 +128,7 @@ def replace_background_endpoint(
             foreground_input=str(fg_path),
             background_input=str(bg_path),
             model_name="birefnet-general",
+            max_size=(800, 800),
             normalize=True,
             target_car_ratio=car_size_decimal,
             smart_placement=smart_placement,
