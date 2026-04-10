@@ -61,8 +61,7 @@
             <div class="field">
               <label for="mode">Processing Mode</label>
               <select id="mode" name="mode">
-                <option value="single-model">Single model</option>
-                <option value="all-models" selected>All models</option>
+                <option value="single-model" selected>Single model</option>
               </select>
             </div>
 
@@ -105,7 +104,13 @@
               <button type="submit" id="submitBtn" class="btn btn-primary">
                 Process Images
               </button>
-              <button type="reset" class="btn btn-secondary">Clear Form</button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                onclick="clearForm()"
+              >
+                Clear Form
+              </button>
             </div>
 
             <p id="loadingText" class="loading-text" hidden>
@@ -114,7 +119,7 @@
           </form>
         </section>
 
-        <section class="panel preview-panel">
+        <section class="panel preview-panel" id="previewSection">
           <h2>Uploaded Image Preview</h2>
 
           <div class="preview-grid">
@@ -148,7 +153,7 @@
       </main>
 
       {% if results %}
-      <section class="panel results-panel">
+      <section class="panel results-panel" id="resultsSection">
         <div class="results-header">
           <h2>Results</h2>
           <p>Click an image to view it larger, or use Download to save it.</p>
@@ -202,6 +207,41 @@
 
       function closeModal() {
         document.getElementById("imageModal").style.display = "none";
+      }
+
+      function clearForm() {
+        form.reset();
+
+        const mode = document.getElementById("mode");
+        if (mode) {
+          mode.value = "single-model";
+        }
+
+        const previewSection = document.getElementById("previewSection");
+        if (previewSection) {
+          previewSection.innerHTML = `
+        <h2>Uploaded Image Preview</h2>
+        <div class="preview-grid">
+          <div class="preview-card">
+            <h3>Car Image</h3>
+            <div class="placeholder">No car image uploaded yet</div>
+          </div>
+          <div class="preview-card">
+            <h3>Background Image</h3>
+            <div class="placeholder">No background image uploaded yet</div>
+          </div>
+        </div>
+      `;
+        }
+
+        const resultsSection = document.getElementById("resultsSection");
+        if (resultsSection) {
+          resultsSection.remove();
+        }
+
+        loadingText.hidden = true;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Process Images";
       }
     </script>
   </body>

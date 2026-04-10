@@ -134,9 +134,15 @@ def replace_background_endpoint(
         )
 
         result_img.save(output_path, format="PNG")
-        blob_result = upload_file_to_blob(output_path)
+        #  blob_result = upload_file_to_blob(output_path)
+        
+        blob_result = {
+            "blob_name": output_path.name,
+            "container_name": "local"
+        }
 
     except Exception as e:
+        print("replace-background error:", repr(e))
         raise HTTPException(
             status_code=500,
             detail=f"Processing failed: {str(e)}",
@@ -145,7 +151,9 @@ def replace_background_endpoint(
         image.file.close()
         background.file.close()
 
-    image_url = f"/images/{blob_result['blob_name']}"
+    # image_url = f"/images/{blob_result['blob_name']}"
+    
+    image_url = f"/output/{output_path.name}"
 
     return {
         "input_foreground": fg_path.name,
@@ -228,6 +236,7 @@ def replace_background_all_models(
                 )
 
     except Exception as e:
+        print("replace-background-all-models error:", repr(e))
         raise HTTPException(
             status_code=500,
             detail=f"Processing failed: {str(e)}",
