@@ -1,3 +1,5 @@
+torch==2.5.1
+torchvision==0.20.1
 azure-storage-blob==12.25.1
 ultralytics
 annotated-doc==0.0.4
@@ -42,7 +44,6 @@ rpds-py==0.30.0
 scikit-image==0.26.0
 scipy==1.17.0
 starlette==0.52.1
-sympy==1.14.0
 tifffile==2026.1.28
 tqdm==4.67.3
 typing-inspection==0.4.2
