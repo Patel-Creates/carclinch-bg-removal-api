@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CarClinch Background Replacement</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div class="hero-text">
+          <p class="eyebrow">Flask Frontend</p>
+          <h1>CarClinch Background Replacement</h1>
+          <p class="subtitle">
+            Upload a car image and a showroom background, then process with one
+            model or compare all available models.
+          </p>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel form-panel">
+          <h2>Upload Images</h2>
+
+          {% if error %}
+          <div class="alert">{{ error }}</div>
+          {% endif %}
+
+          <form
+            action="{{ url_for('process') }}"
+            method="post"
+            enctype="multipart/form-data"
+            id="uploadForm"
+          >
+            <div class="field">
+              <label for="image">Car Image</label>
+              <input
+                type="file"
+                id="image"
+                name="image"
+                accept="image/*"
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="background">Background Image</label>
+              <input
+                type="file"
+                id="background"
+                name="background"
+                accept="image/*"
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="mode">Processing Mode</label>
+              <select id="mode" name="mode">
+                <option value="single-model">Single model</option>
+                <option value="all-models" selected>All models</option>
+              </select>
+            </div>
+
+            <div class="row two-cols">
+              <div class="field">
+                <label for="car_size">Car Size (%)</label>
+                <input
+                  type="number"
+                  id="car_size"
+                  name="car_size"
+                  min="1"
+                  max="100"
+                  value="{{ car_size or 60 }}"
+                />
+              </div>
+
+              <div class="field checkbox-field">
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    name="smart_placement"
+                    {%
+                    if
+                    smart_placement
+                    is
+                    not
+                    defined
+                    or
+                    smart_placement
+                    %}checked{%
+                    endif
+                    %}
+                  />
+                  <span>Enable Smart Placement</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button type="submit" id="submitBtn" class="btn btn-primary">
+                Process Images
+              </button>
+              <button type="reset" class="btn btn-secondary">Clear Form</button>
+            </div>
+
+            <p id="loadingText" class="loading-text" hidden>
+              Processing images, please wait...
+            </p>
+          </form>
+        </section>
+
+        <section class="panel preview-panel">
+          <h2>Uploaded Image Preview</h2>
+
+          <div class="preview-grid">
+            <div class="preview-card">
+              <h3>Car Image</h3>
+              {% if car_preview %}
+              <img
+                class="preview-image"
+                src="{{ car_preview }}"
+                alt="Car preview"
+              />
+              {% else %}
+              <div class="placeholder">No car image uploaded yet</div>
+              {% endif %}
+            </div>
+
+            <div class="preview-card">
+              <h3>Background Image</h3>
+              {% if background_preview %}
+              <img
+                class="preview-image"
+                src="{{ background_preview }}"
+                alt="Background preview"
+              />
+              {% else %}
+              <div class="placeholder">No background image uploaded yet</div>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {% if results %}
+      <section class="panel results-panel">
+        <div class="results-header">
+          <h2>Results</h2>
+          <p>Click an image to view it larger, or use Download to save it.</p>
+        </div>
+
+        <div class="results-grid">
+          {% for result in results %}
+          <article class="result-card">
+            <div class="result-top">
+              <h3>{{ result.model }}</h3>
+              <span class="file-name">{{ result.output_filename }}</span>
+            </div>
+
+            <img
+              src="{{ result.preview_url }}"
+              alt="{{ result.model }} output"
+              class="result-image"
+              onclick="openModal(this.src)"
+            />
+
+            <a href="{{ result.download_url }}" class="btn btn-download"
+              >Download</a
+            >
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+
+    <div id="imageModal" class="modal" onclick="closeModal()">
+      <span class="close">&times;</span>
+      <img id="modalImg" alt="Expanded preview" />
+    </div>
+
+    <script>
+      const form = document.getElementById("uploadForm");
+      const submitBtn = document.getElementById("submitBtn");
+      const loadingText = document.getElementById("loadingText");
+
+      form.addEventListener("submit", () => {
+        submitBtn.disabled = true;
+        loadingText.hidden = false;
+        submitBtn.textContent = "Processing...";
+      });
+
+      function openModal(src) {
+        document.getElementById("modalImg").src = src;
+        document.getElementById("imageModal").style.display = "flex";
+      }
+
+      function closeModal() {
+        document.getElementById("imageModal").style.display = "none";
+      }
+    </script>
+  </body>
+</html>
