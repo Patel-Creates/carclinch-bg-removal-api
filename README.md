@@ -104,3 +104,58 @@ http://127.0.0.1:5000
 ```
 
 ---
+
+## How to Use
+
+1. Open the frontend in your browser:
+
+```
+http://127.0.0.1:5000
+```
+
+2. Upload:
+   - a car image
+   - a background image
+3. Click Process Images
+4. View the processed result
+5. Use Clear Form to reset the form and previews
+
+### Notes for Team Members
+
+If you pull this branch to your own computer, the project will not run automatically until you install the dependencies in your local virtual environment.
+
+Each team member must do the following after pulling the branch:
+
+```
+python -m venv .venv
+```
+
+Activate it:
+
+```
+.\.venv\Scripts\activate
+```
+
+Then install dependencies:
+
+```
+python -m pip install -r api/src/requirements.txt
+```
+
+After that, start the backend and frontend using the commands above.
+
+### Windows Compatibility Note
+
+The project requirements were updated so that `uvloop` is skipped on Windows, because `uvloop` does not support Windows.
+
+This line is used in `api/src/requirements.txt`:
+
+```
+uvloop==0.22.1; platform_system != "Windows"
+```
+
+This allows Windows users to install dependencies successfully.
+
+---
+
+##
