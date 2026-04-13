@@ -30,3 +30,33 @@ At the moment, the project is configured for **single-model mode only** in the f
 git clone <your-repo-url>
 cd carclinch-bg-removal-api
 ```
+
+### 2. Create a virtual environment
+
+```
+python -m venv .venv
+```
+
+### 3. Activate the virtual environment
+
+#### Windows PowerShell
+
+```
+.\.venv\Scripts\activate
+```
+
+#### macOS / Linux
+
+```
+source .venv/bin/activate
+```
+
+### 4. Install dependencies
+
+```
+python -m pip install -r api/src/requirements.txt
+```
+
+---
+
+## Running the Project Locally
