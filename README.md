@@ -1,4 +1,4 @@
-# CarClinch Background Removal API
+# CarClinch Background Replacement API
 
 This project provides a background removal and background replacement application for car images.  
 The project includes:
