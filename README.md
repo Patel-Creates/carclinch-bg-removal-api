@@ -60,3 +60,47 @@ python -m pip install -r api/src/requirements.txt
 ---
 
 ## Running the Project Locally
+
+You need to run the backend and frontend in **separate terminals.**
+
+### Terminal 1: Run the FastAPI backend
+
+Activate the virtual environment first:
+
+```
+.\.venv\Scripts\activate
+```
+
+Then run:
+
+```
+python -m uvicorn main:app --reload --port 8000 --app-dir api/src
+```
+
+The backend should run at:
+
+```
+http://127.0.0.1:8000
+```
+
+### Terminal 2: Run the Flask frontend
+
+Activate the virtual environment first:
+
+```
+.\.venv\Scripts\activate
+```
+
+Than run:
+
+```
+python frontend/app.py
+```
+
+The frontend should run at:
+
+```
+http://127.0.0.1:5000
+```
+
+---
