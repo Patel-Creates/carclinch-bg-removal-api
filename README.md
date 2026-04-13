@@ -158,4 +158,37 @@ This allows Windows users to install dependencies successfully.
 
 ---
 
-##
+## Azure / Blob Storage Note
+
+For local development, the current setup uses a local-output approach for processed images.
+
+Azure deployment and Azure Blob Storage configuration has been added in 'main' branch, README.md.
+
+### Project Structure
+
+```
+carclinch-bg-removal-api/
+│
+├── api/
+│   └── src/
+│       ├── main.py
+│       ├── requirements.txt
+│       └── ...
+│
+├── frontend/
+│   ├── app.py
+│   ├── templates/
+│   │   └── index.html
+│   └── static/
+│       └── styles.css
+│
+└── README.md
+```
+
+### Current Development Notes
+
+- Frontend is implemented in Flask
+- Backend is implemented in FastAPI
+- Single-model processing works locally
+- Multi-model mode is currently disabled in the frontend
+- Azure deployment instructions has been added in 'main' README.md
