@@ -70,8 +70,6 @@ Car dealership listings require clean, professional images of vehicles against n
 | CI | `.github/workflows/ci.yml` | Push / PR to `main` | Lint (`ruff`) + Docker build |
 | CD | `.github/workflows/cd.yml` | Merge to `main` | Lint + build + push to ACR + deploy to Azure Container Apps |
 
-For full architecture decisions and rationale, see [`docs/ADR.md`](docs/ADR.md)
-
 ---
 
 ## Repository Structure 📁
@@ -247,8 +245,9 @@ The `model_eval/` suite was used to benchmark multiple background removal models
 | Name | Role |
 |---|---|
 | Islam Gomaa | Professor |
-| Mr Ahmed | Industry Client |
+| Mr Ahmed(CarClinch) | Industry Client |
 | Dharti Patel | Group leader |
+| Sebastien Dune | Developer |
 | Muhire Josue | Developer |
 | Olga Durham | Developer |
 | Kylath George | Developer |
