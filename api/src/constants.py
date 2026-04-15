@@ -10,5 +10,3 @@ SUPPORTED_MODELS = [
     "birefnet-general-lite",
     "bria-rmbg",
 ]
-
-MAX_WORKERS = 4
