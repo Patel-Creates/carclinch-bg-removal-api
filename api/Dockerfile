@@ -17,12 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-COPY src/requirements.txt /tmp/requirements.txt
+COPY api/src/requirements.txt /tmp/requirements.txt
 
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
   --extra-index-url https://download.pytorch.org/whl/cpu
 
-COPY . /app
+COPY api /app
 
 EXPOSE 8000
 
