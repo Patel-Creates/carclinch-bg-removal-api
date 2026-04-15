@@ -12,11 +12,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
 from blob_storage import upload_file_to_blob, download_blob_bytes
-from constants import ALLOWED_EXTENSIONS, SUPPORTED_MODELS
-from util import process_model_replacement, validate_uploaded_image
-from core import processor  # noqa: E402
 
 load_dotenv()
+from constants import ALLOWED_EXTENSIONS, SUPPORTED_MODELS
+from util import process_model_replacement, validate_uploaded_image
+
+root_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(root_dir))
+
+from core import processor
 
 app = FastAPI()
 
@@ -127,7 +131,7 @@ def replace_background_endpoint(
         result_img = processor.replace_background(
             foreground_input=str(fg_path),
             background_input=str(bg_path),
-            model_name="birefnet-general",
+            model_name="u2net",
             normalize=True,
             target_car_ratio=car_size_decimal,
             smart_placement=smart_placement,
