@@ -18,3 +18,9 @@ model_eval/results/
 images/
 .env
 .env.example
+
+# Terraform
+infrastructure/.terraform.tfstate.lock.info
+**/.terraform/
+*.tfstate
+*.tfstate.backup
