@@ -34,20 +34,24 @@ def detect_vehicle_bbox(img: Image.Image) -> Optional[Tuple[int, int, int, int]]
 
     # Check if results exists and has at least one detection result
     if not results or len(results) == 0:
+        get_yolo_model.cache_clear()
         return None
 
     # Access the first result and check if 'boxes' is not None and not empty
     first_result = results[0]
     if first_result.boxes is None or len(first_result.boxes) == 0:
+        get_yolo_model.cache_clear()
         return None
 
     # Extract the first box (highest confidence)
     box_data = first_result.boxes[0].xyxy
 
     if box_data is None:
+        get_yolo_model.cache_clear()
         return None
 
     box = box_data[0].cpu().numpy()
+    get_yolo_model.cache_clear()
     return (int(box[0]), int(box[1]), int(box[2]), int(box[3]))
 
 
@@ -397,3 +401,4 @@ def replace_background(
 def clear_sessions():
     """Explicitly clears the model cache to free resources."""
     get_session.cache_clear()
+    get_yolo_model.cache_clear()
