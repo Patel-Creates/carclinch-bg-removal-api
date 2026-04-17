@@ -9,15 +9,13 @@ from core import processor
 def validate_uploaded_image(file: UploadFile) -> Path:
     if not (file.content_type and file.content_type.startswith("image/")):
         raise HTTPException(
-            status_code=400,
-            detail=f"File {file.filename} is not a valid image."
+            status_code=400, detail=f"File {file.filename} is not a valid image."
         )
 
     filename = Path(file.filename or "upload")
     if filename.suffix.lower() not in ALLOWED_EXTENSIONS:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file extension for {filename.name}."
+            status_code=400, detail=f"Invalid file extension for {filename.name}."
         )
 
     return filename

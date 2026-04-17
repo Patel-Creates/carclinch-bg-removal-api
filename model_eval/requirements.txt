@@ -29,3 +29,4 @@ sympy==1.14.0
 tifffile==2026.1.28
 tqdm==4.67.3
 urllib3==2.6.3
+ultralytics

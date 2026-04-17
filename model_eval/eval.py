@@ -6,13 +6,13 @@ from collections import defaultdict
 from PIL import Image
 from dataset import load_dataset
 from metrics import dice, iou
-from core import processor
+import time
 
 # add the parent directory to sys.path so we can find the core folder
 root_dir = Path(__file__).resolve().parent.parent
 sys.path.append(str(root_dir))
 
-
+from core import processor
 
 # Configuration
 MODELS = [
@@ -42,6 +42,7 @@ def print_detailed_stats(model_name, results):
     dices = np.array([r["dice"] for r in results])
     ious = np.array([r["iou"] for r in results])
     failures = [r for r in results if r["dice"] < DICE_THRESHOLD]
+    times = np.array([r["time_s"] for r in results if r["time_s"] is not None])
 
     print(f"Analysis: {model_name}")
     stats_table = [
@@ -63,6 +64,18 @@ def print_detailed_stats(model_name, results):
             f"{np.max(ious):.4f}",
         ],
     ]
+
+    if len(times):
+        stats_table.append(
+            [
+                "Time (s)",
+                f"{np.mean(times):.4f}",
+                f"{np.median(times):.4f}",
+                f"{np.std(times):.4f}",
+                f"{np.min(times):.4f}",
+                f"{np.max(times):.4f}",
+            ]
+        )
 
     for row in stats_table:
         print(
@@ -104,14 +117,20 @@ def evaluate(dataset_root: Path):
                 pred_mask = np.load(cache_path)
                 # if cached mask is wrong size, re-run
                 if pred_mask.shape != gt_mask.shape:
+                    t_start = time.perf_counter()
                     _, pred_mask = processor.process_image(
                         case.input_path, model, MAX_SIZE
                     )
+                    elapsed = time.perf_counter() - t_start
+                else:
+                    elapsed = None
             else:
+                t_start = time.perf_counter()
                 # Run model and save mask + visual image
                 result_img, pred_mask = processor.process_image(
                     case.input_path, model, MAX_SIZE
                 )
+                elapsed = time.perf_counter() - t_start
                 np.save(cache_path, pred_mask)
                 result_img.save(model_results_dir / f"{case.case_id}.png")
 
@@ -128,6 +147,7 @@ def evaluate(dataset_root: Path):
                     "case": case.case_id,
                     "dice": dice(gt_mask, pred_mask),
                     "iou": iou(gt_mask, pred_mask),
+                    "time_s": elapsed,
                 }
             )
 

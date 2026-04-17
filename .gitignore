@@ -14,7 +14,6 @@ api/src/images/output/
 
 # Model evaluation artifacts
 model_eval/.cache/
-model_eval/results/
 images/
 .env
 .env.example
